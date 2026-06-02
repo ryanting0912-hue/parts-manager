@@ -304,6 +304,13 @@
         const inputClass = "w-full bg-gray-700 text-white p-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all";
         
         if (currentTab > 0) {
+            // 分頁：若進入修改模式且為「物件名稱(0)」，也改用下拉選單
+            if (isEditing && cIdx === 0) {
+                let homeItems = tabs[0].data.map(r => r[0]);
+                let optionsHtml = homeItems.map(item => `<option value="${item}" ${item === cell ? 'selected' : ''}>${item}</option>`).join('');
+                return `<select onchange="updateCell(${rIdx}, ${cIdx}, this.value)" class="${inputClass}">${optionsHtml}</select>`;
+            }
+
             if (cIdx === 2 || cIdx === 3) {
                 let displayVal = cIdx === 3 ? getGlobalRemaining(row[0]) : cell;
                 return `<span class="block px-2 text-gray-300 ${cIdx === 3 ? 'text-green-400 font-bold text-lg' : ''}">${displayVal}</span>`;
@@ -333,7 +340,8 @@
     }
 
     function renderInputFields() {
-        const inputClass = "w-full bg-gray-900 border border-gray-600 text-white p-3 rounded focus:outline-none focus:border-blue-500 transition-colors placeholder-gray-500";
+        const inputClass = "w-full bg-gray-900 border border-gray-600 text-white p-3 rounded focus:outline-none focus:border-blue-500 transition-colors placeholder-gray-500 cursor-pointer";
+        
         if (currentTab === 0) {
             return `
                 <div><label class="block text-sm text-gray-400 mb-1">物件名稱</label><input type="text" id="in-0" class="${inputClass}" placeholder="例如: 螺絲"></div>
@@ -341,13 +349,24 @@
                 <div><label class="block text-sm text-gray-400 mb-1">收納位置</label><input type="text" id="in-2" class="${inputClass}" placeholder="例如: A櫃"></div>
             `;
         } else {
+            // 自動抓取首頁所有的物件名稱，生成下拉式選單的選項
+            let homeItems = tabs[0].data.map(row => row[0]);
+            let optionsHtml = homeItems.length > 0 
+                ? `<option value="" disabled selected>請點擊選擇物件</option>` + homeItems.map(item => `<option value="${item}">${item}</option>`).join('')
+                : `<option value="" disabled selected>首頁尚無物件，請先新增</option>`;
+
             return `
-                <div><label class="block text-sm text-gray-400 mb-1">物件名稱</label><input type="text" id="in-0" class="${inputClass}" placeholder="請輸入首頁已有的物件"></div>
-                <div><label class="block text-sm text-gray-400 mb-1">需要數量</label><input type="number" id="in-1" class="${inputClass}" placeholder="不可超過總數量"></div>
+                <div>
+                    <label class="block text-sm text-gray-400 mb-1">物件名稱</label>
+                    <select id="in-0" class="${inputClass}">
+                        ${optionsHtml}
+                    </select>
+                </div>
+                <div><label class="block text-sm text-gray-400 mb-1">需要數量</label><input type="number" id="in-1" class="${inputClass}" placeholder="不可超過剩餘數量"></div>
                 <div class="flex flex-col gap-2">
                     <label class="block text-sm text-gray-400 mb-1">備註 (輸入網址/文字 或 上傳檔案)</label>
                     <input type="text" id="in-2-text" class="${inputClass}" placeholder="輸入文字或 http:// 網址">
-                    <input type="file" id="in-2-file" accept=".dxf,.stl,.step" class="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-gray-700 file:text-white hover:file:bg-gray-600 transition-colors">
+                    <input type="file" id="in-2-file" accept=".dxf,.stl,.step" class="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-gray-700 file:text-white hover:file:bg-gray-600 transition-colors cursor-pointer">
                 </div>
             `;
         }
@@ -355,7 +374,7 @@
 
     function addData() {
         let objName = document.getElementById('in-0').value.trim();
-        if (!objName) { alert("請輸入物件名稱！"); return; }
+        if (!objName) { alert(currentTab === 0 ? "請輸入物件名稱！" : "請選擇物件名稱！"); return; }
 
         let exists = tabs[currentTab].data.some(row => row[0] === objName);
         if (exists) {
