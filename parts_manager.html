@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>物件管理系統</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #1f2937; }
+        ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #6b7280; }
+        
+        .fade-in { animation: fadeIn 0.2s ease-in-out; }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(5px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .tab-active { 
+            background-color: #374151; 
+            border-bottom: 2px solid #60a5fa; 
+            color: #60a5fa; 
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen p-6 font-sans transition-colors duration-300">
+
+    <header class="mb-8">
+        <h1 class="text-[42px] font-extrabold text-white tracking-wide leading-normal">物件管理系統</h1>
+    </header>
+
+    <div class="flex justify-between items-start mb-6 border-b border-gray-700 pb-4">
+        <div class="flex flex-wrap gap-2 items-center" id="tab-bar">
+            </div>
+        <button onclick="toggleEdit()" id="edit-btn" class="px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded shadow transition-all duration-200 flex-shrink-0 ml-4">
+            修改
+        </button>
+    </div>
+
+    <div id="content-area" class="fade-in">
+        </div>
+
+<script>
+    // --- 系統狀態與初始化 ---
+    let tabs = [];
+    let currentTab = 0;
+    let isEditing = false;
+
+    function init() {
+        const savedData = localStorage.getItem('inventorySystemData');
+        if (savedData) {
+            try { tabs = JSON.parse(savedData); } 
+            catch (e) { setupDefaultTabs(); }
+        } else {
+            setupDefaultTabs();
+        }
+        renderAll();
+    }
+
+    function setupDefaultTabs() {
+        tabs = [{ id: 0, title: "物件總數", data: [] }];
+    }
+
+    function saveData() {
+        try {
+            localStorage.setItem('inventorySystemData', JSON.stringify(tabs));
+        } catch (e) {
+            alert("儲存空間已滿！請刪除部分大型檔案資料。");
+        }
+    }
+
+    // --- 全局庫存計算邏輯 ---
+    function getUsedQuantity(itemName) {
+        let used = 0;
+        for (let i = 1; i < tabs.length; i++) {
+            tabs[i].data.forEach(row => {
+                if (row[0] === itemName) {
+                    used += parseFloat(row[1]) || 0;
+                }
+            });
+        }
+        return used;
+    }
+
+    function getGlobalRemaining(itemName) {
+        let total = 0;
+        let homeItem = tabs[0].data.find(row => row[0] === itemName);
+        if (homeItem) total = parseFloat(homeItem[1]) || 0;
+        return total - getUsedQuantity(itemName);
+    }
+
+    // --- 分頁操作 ---
+    function switchTab(index) {
+        currentTab = index;
+        isEditing = false;
+        renderAll();
+    }
+
+    function addNewTab() {
+        tabs.push({ id: Date.now(), title: "標題", data: [] });
+        switchTab(tabs.length - 1);
+        saveData();
+    }
+
+    function deleteTab(index, event) {
+        event.stopPropagation();
+        if (index === 0) return;
+
+        if (confirm(`確定要刪除分頁「${tabs[index].title}」及其所有資料嗎？此動作無法復原。`)) {
+            tabs.splice(index, 1);
+            if (currentTab === index) currentTab = Math.max(0, index - 1);
+            else if (currentTab > index) currentTab--;
+            saveData();
+            renderAll();
+        }
+    }
+
+    function updateTitle(val) {
+        tabs[currentTab].title = val || "標題";
+        saveData();
+        renderTabBar();
+    }
+
+    // --- 編輯與刪除列功能 ---
+    function toggleEdit() {
+        isEditing = !isEditing;
+        renderContent();
+    }
+
+    function deleteRow(tabIdx, rowIdx) {
+        if (tabIdx === 0) {
+            let itemName = tabs[0].data[rowIdx][0];
+            let used = getUsedQuantity(itemName);
+            if (used > 0) {
+                alert(`無法刪除！「${itemName}」已被其他分頁使用（共提取 ${used} 個）。請先至各分頁刪除該項目紀錄，才能在首頁刪除。`);
+                return;
+            }
+        }
+
+        if (confirm("確定要刪除這筆資料嗎？刪除後將重新計算庫存。")) {
+            tabs[tabIdx].data.splice(rowIdx, 1);
+            saveData();
+            renderAll();
+        }
+    }
+
+    function updateCell(rowIdx, colIdx, val) {
+        let tab = tabs[currentTab];
+        let originalVal = tab.data[rowIdx][colIdx];
+        
+        if (colIdx === 0) {
+            let exists = tab.data.some((r, i) => r[0] === val && i !== rowIdx);
+            if (exists) {
+                alert(`錯誤！此分頁中已存在名為「${val}」的物件。`);
+                renderContent(); return;
+            }
+            
+            if (currentTab > 0) {
+                let homeItem = tabs[0].data.find(r => r[0] === val);
+                if (!homeItem) {
+                    alert(`錯誤！「${val}」不存在於首頁的物件總數中。`);
+                    renderContent(); return;
+                }
+                tab.data[rowIdx][2] = homeItem[2];
+                
+                let reqQty = parseFloat(tab.data[rowIdx][1]) || 0;
+                let available = getGlobalRemaining(val);
+                if (reqQty > available) {
+                    alert(`數量不足！「${val}」剩餘庫存不足以提供 ${reqQty} 個。`);
+                    renderContent(); return;
+                }
+            }
+        }
+
+        if (colIdx === 1) {
+            let newQty = parseFloat(val) || 0;
+            let itemName = tab.data[rowIdx][0];
+
+            if (currentTab === 0) {
+                let used = getUsedQuantity(itemName);
+                if (newQty < used) {
+                    alert(`修改失敗！各分頁已提取共 ${used} 個「${itemName}」，總數量不可低於此數值。`);
+                    renderContent(); return;
+                }
+            } else {
+                let oldQty = parseFloat(originalVal) || 0;
+                let currentRem = getGlobalRemaining(itemName);
+                let maxAvailable = currentRem + oldQty;
+                
+                if (newQty > maxAvailable) {
+                    alert(`數量不足！「${itemName}」最大可提取數量為 ${maxAvailable}。`);
+                    renderContent(); return;
+                }
+            }
+        }
+
+        if (currentTab > 0 && colIdx === 4) {
+            let cell = tab.data[rowIdx][colIdx];
+            cell.name = val;
+            cell.type = val.startsWith('http') ? 'url' : 'text';
+            cell.data = val;
+        } else {
+            tab.data[rowIdx][colIdx] = val;
+        }
+        
+        saveData();
+        renderContent();
+    }
+
+    // --- 畫面渲染 ---
+    function renderTabBar() {
+        const tabBar = document.getElementById('tab-bar');
+        tabBar.innerHTML = tabs.map((tab, i) => `
+            <div class="flex items-center rounded-t transition-colors ${currentTab === i ? 'tab-active' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}">
+                <button onclick="switchTab(${i})" class="px-4 py-2 font-semibold focus:outline-none">
+                    ${i === 0 ? "物件總數" : tab.title}
+                </button>
+                ${i !== 0 ? `
+                <button onclick="deleteTab(${i}, event)" class="px-2 py-2 text-gray-500 hover:text-red-400 font-bold focus:outline-none transition-colors" title="刪除分頁">
+                    ✕
+                </button>
+                ` : ''}
+            </div>
+        `).join('') + `
+            <button onclick="addNewTab()" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded font-bold ml-2 shadow transition-colors">
+                +
+            </button>
+        `;
+    }
+
+    function renderContent() {
+        const contentArea = document.getElementById('content-area');
+        const editBtn = document.getElementById('edit-btn');
+        const tab = tabs[currentTab];
+        
+        editBtn.innerText = isEditing ? '確認' : '修改';
+        editBtn.className = isEditing 
+            ? "px-6 py-2 bg-green-600 hover:bg-green-500 text-white font-bold rounded shadow transition-all duration-200 flex-shrink-0 ml-4"
+            : "px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded shadow transition-all duration-200 flex-shrink-0 ml-4";
+
+        let html = '';
+
+        if (currentTab !== 0) {
+            html += `
+                <div class="mb-6 fade-in">
+                    <input type="text" value="${tab.title}" onchange="updateTitle(this.value)" placeholder="請輸入標題" 
+                           class="text-3xl font-bold bg-transparent border-b-2 border-gray-600 focus:border-blue-500 outline-none text-white w-1/3 pb-1 transition-colors">
+                </div>
+            `;
+        }
+
+        const headers = currentTab === 0 
+            ? ['物件名稱', '數量', '收納位置', '操作'] 
+            : ['物件名稱', '需要數量', '收納位置', '剩餘數量', '備註 (連結/檔案)', '操作'];
+
+        html += `
+            <div class="overflow-x-auto bg-gray-800 rounded-lg shadow-lg fade-in">
+                <table class="w-full text-left border-collapse min-w-max">
+                    <thead>
+                        <tr class="bg-gray-900 text-gray-300 border-b border-gray-700">
+                            ${headers.map(h => `<th class="p-4 font-semibold ${h === '操作' ? 'text-center w-20' : ''}">${h}</th>`).join('')}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${tab.data.map((row, rIdx) => `
+                            <tr class="border-b border-gray-700 hover:bg-gray-750 transition-colors">
+                                ${row.map((cell, cIdx) => `
+                                    <td class="p-3">
+                                        ${renderCell(cell, rIdx, cIdx, row)}
+                                    </td>
+                                `).join('')}
+                                <td class="p-3 text-center align-middle">
+                                    <button onclick="deleteRow(${currentTab}, ${rIdx})" class="text-red-400 hover:text-white border border-red-800 hover:bg-red-600 font-bold px-3 py-1 rounded transition-colors text-sm">
+                                        刪除
+                                    </button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                        ${tab.data.length === 0 ? `<tr><td colspan="${headers.length}" class="p-6 text-center text-gray-500">尚無資料</td></tr>` : ''}
+                    </tbody>
+                </table>
+            </div>
+        `;
+
+        html += `
+            <div class="mt-8 p-6 bg-gray-800 rounded-lg shadow-lg fade-in border border-gray-700">
+                <h3 class="text-lg font-bold text-gray-300 mb-4 flex items-center">
+                    <span class="mr-2">➕</span> 新增資料
+                </h3>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                    ${renderInputFields()}
+                    <button onclick="addData()" class="col-span-1 md:col-span-3 mt-2 w-full bg-green-600 hover:bg-green-500 text-white font-bold py-3 rounded shadow transition-colors">
+                        上傳資料
+                    </button>
+                </div>
+            </div>
+        `;
+
+        contentArea.innerHTML = html;
+    }
+
+    function renderCell(cell, rIdx, cIdx, row) {
+        const inputClass = "w-full bg-gray-700 text-white p-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all";
+        
+        if (currentTab > 0) {
+            if (cIdx === 2 || cIdx === 3) {
+                let displayVal = cIdx === 3 ? getGlobalRemaining(row[0]) : cell;
+                return `<span class="block px-2 text-gray-300 ${cIdx === 3 ? 'text-green-400 font-bold text-lg' : ''}">${displayVal}</span>`;
+            }
+            
+            if (cIdx === 4) {
+                if (isEditing) {
+                    return `<input type="text" value="${cell.name}" onchange="updateCell(${rIdx}, ${cIdx}, this.value)" class="${inputClass}">`;
+                } else {
+                    if (cell.type === 'file') {
+                        return `<a href="${cell.data}" download="${cell.name}" class="inline-flex items-center text-green-400 hover:text-green-300 underline font-bold transition-colors px-2">📄 ${cell.name}</a>`;
+                    } else if (cell.type === 'url') {
+                        return `<a href="${cell.data}" target="_blank" class="inline-flex items-center text-blue-400 hover:text-blue-300 underline transition-colors px-2">🔗 前往連結</a>`;
+                    } else {
+                        return `<span class="block px-2 text-gray-300">${cell.name}</span>`;
+                    }
+                }
+            }
+        }
+        
+        if (isEditing) {
+            let inputType = cIdx === 1 ? 'number' : 'text';
+            return `<input type="${inputType}" value="${cell}" onchange="updateCell(${rIdx}, ${cIdx}, this.value)" class="${inputClass}">`;
+        } else {
+            return `<span class="block px-2 text-gray-200">${cell}</span>`;
+        }
+    }
+
+    function renderInputFields() {
+        const inputClass = "w-full bg-gray-900 border border-gray-600 text-white p-3 rounded focus:outline-none focus:border-blue-500 transition-colors placeholder-gray-500";
+        if (currentTab === 0) {
+            return `
+                <div><label class="block text-sm text-gray-400 mb-1">物件名稱</label><input type="text" id="in-0" class="${inputClass}" placeholder="例如: 螺絲"></div>
+                <div><label class="block text-sm text-gray-400 mb-1">總數量</label><input type="number" id="in-1" class="${inputClass}" placeholder="例如: 100"></div>
+                <div><label class="block text-sm text-gray-400 mb-1">收納位置</label><input type="text" id="in-2" class="${inputClass}" placeholder="例如: A櫃"></div>
+            `;
+        } else {
+            return `
+                <div><label class="block text-sm text-gray-400 mb-1">物件名稱</label><input type="text" id="in-0" class="${inputClass}" placeholder="請輸入首頁已有的物件"></div>
+                <div><label class="block text-sm text-gray-400 mb-1">需要數量</label><input type="number" id="in-1" class="${inputClass}" placeholder="不可超過總數量"></div>
+                <div class="flex flex-col gap-2">
+                    <label class="block text-sm text-gray-400 mb-1">備註 (輸入網址/文字 或 上傳檔案)</label>
+                    <input type="text" id="in-2-text" class="${inputClass}" placeholder="輸入文字或 http:// 網址">
+                    <input type="file" id="in-2-file" accept=".dxf,.stl,.step" class="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-gray-700 file:text-white hover:file:bg-gray-600 transition-colors">
+                </div>
+            `;
+        }
+    }
+
+    function addData() {
+        let objName = document.getElementById('in-0').value.trim();
+        if (!objName) { alert("請輸入物件名稱！"); return; }
+
+        let exists = tabs[currentTab].data.some(row => row[0] === objName);
+        if (exists) {
+            alert(`錯誤！此分頁中已存在名為「${objName}」的紀錄。如需修改，請直接使用上方「修改」按鈕。`);
+            return;
+        }
+
+        if (currentTab === 0) {
+            let qty = parseFloat(document.getElementById('in-1').value) || 0;
+            let loc = document.getElementById('in-2').value;
+            
+            tabs[currentTab].data.push([objName, qty, loc]);
+            saveData();
+            renderContent();
+        } else {
+            let reqQty = parseFloat(document.getElementById('in-1').value) || 0;
+            if(reqQty <= 0) { alert("請輸入有效的需要數量！"); return; }
+
+            let homeItem = tabs[0].data.find(item => item[0] === objName);
+            if (!homeItem) {
+                alert(`錯誤！「${objName}」不存在於首頁的物件總數中。請先在首頁新增此物件。`);
+                return;
+            }
+            
+            let available = getGlobalRemaining(objName);
+            if (reqQty > available) {
+                alert(`數量不足！「${objName}」目前全局剩餘僅有 ${available} 個，無法提取 ${reqQty} 個。`);
+                return;
+            }
+            
+            let storageLoc = homeItem[2];
+            let row = [objName, reqQty, storageLoc, 0]; 
+
+            let textInput = document.getElementById('in-2-text').value;
+            let fileInput = document.getElementById('in-2-file');
+
+            if (fileInput.files.length > 0) {
+                let file = fileInput.files[0];
+                if(file.size > 2 * 1024 * 1024) {
+                    alert("檔案過大！請上傳小於 2MB 的檔案。"); return;
+                }
+                let reader = new FileReader();
+                reader.onload = function(e) {
+                    row.push({ type: 'file', name: file.name, data: e.target.result });
+                    tabs[currentTab].data.push(row);
+                    saveData(); renderContent();
+                };
+                reader.readAsDataURL(file);
+            } else {
+                let isUrl = textInput.trim().startsWith('http');
+                row.push({ type: isUrl ? 'url' : 'text', name: textInput || "-", data: textInput });
+                tabs[currentTab].data.push(row);
+                saveData(); renderContent();
+            }
+        }
+    }
+
+    function renderAll() {
+        renderTabBar();
+        renderContent();
+    }
+
+    init();
+</script>
+</body>
+</html>
